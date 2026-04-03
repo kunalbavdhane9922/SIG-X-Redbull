@@ -8,10 +8,8 @@ const GAME_DURATION = 5 * 60; // 5 minutes
 
 export default function GamePage() {
   const navigate = useNavigate();
-  const { subscribe, publish, connected, connect } = useWebSocket();
+  const { on, emit, connected, connect } = useWebSocket();
   const { teamId, roomId, question, setQuestion, setCurrentStage, currentStage, digits, setDigits } = useGame();
-  const roomSubRef = useRef(null);
-  const teamSubRef = useRef(null);
 
   const [code, setCode] = useState('// write your code here');
   const [language, setLanguage] = useState('java'); // 'java' | 'cpp'
@@ -20,6 +18,7 @@ export default function GamePage() {
   const [timeLeft, setTimeLeft] = useState(GAME_DURATION);
   const [stageLocked, setStageLocked] = useState(false);
   const timerRef = useRef(null);
+  const cleanupRef = useRef([]);
 
   // Redirect if no session
   useEffect(() => {
@@ -28,12 +27,14 @@ export default function GamePage() {
     // Start with blank comment
     setCode('// write your code here');
 
-    connect(() => {
+    const socket = connect();
+
+    const setupListeners = () => {
       // Room-wide events
-      roomSubRef.current = subscribe(`/topic/room/${roomId}`, (event) => {});
+      const unsub1 = on('room-event', (event) => {});
 
       // Per-team events (RESULT, QUESTION_DATA, GAME_END)
-      teamSubRef.current = subscribe(`/topic/room/${roomId}/team/${teamId}`, (event) => {
+      const unsub2 = on('team-event', (event) => {
         if (event.type === 'RESULT') {
           const p = event.payload;
           setSubmitting(false);
@@ -68,11 +69,19 @@ export default function GamePage() {
           setResult({ passed: false, message: event.payload?.message });
         }
       });
-    });
+
+      cleanupRef.current = [unsub1, unsub2];
+    };
+
+    if (socket.connected) {
+      setupListeners();
+    } else {
+      socket.once('connect', setupListeners);
+    }
 
     return () => {
-      roomSubRef.current?.unsubscribe();
-      teamSubRef.current?.unsubscribe();
+      cleanupRef.current.forEach(fn => fn?.());
+      socket.off('connect', setupListeners);
     };
   }, [teamId, roomId]);
 
@@ -91,7 +100,7 @@ export default function GamePage() {
     if (!code.trim() || submitting || stageLocked || timeLeft === 0) return;
     setSubmitting(true);
     setResult(null);
-    publish('/app/submit', { teamId, roomId, code, stage: currentStage, language });
+    emit('submit-code', { teamId, roomId, code, stage: currentStage, language });
   };
 
   const formatTime = (secs) => {

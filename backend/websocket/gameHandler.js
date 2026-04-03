@@ -1,17 +1,14 @@
 /**
- * WebSocket Game Handler — equivalent to GameController.java
+ * Socket.IO Game Handler
  * 
- * STOMP Destinations (exact parity):
- *   /app/join    — Join a room (JoinRoomMessage)
- *   /app/start   — Start the game (payload: { roomId })
- *   /app/submit  — Submit code (SubmitCodeMessage)
+ * Client → Server events:
+ *   join-room    { roomId, teamId, role }
+ *   start-game   { roomId }
+ *   submit-code  { roomId, teamId, code, stage, language }
  * 
- * Broadcast topics:
- *   /topic/room/{roomId}                — Room-wide events
- *   /topic/room/{roomId}/team/{teamId}  — Team-specific events
- * 
- * Event types (ServerEvent): GAME_START, QUESTION_DATA, RESULT, GAME_END,
- *   PARTICIPANT_LIST, JOIN_OK, ERROR, TEAM_PROGRESS, TEAM_FINISHED
+ * Server → Client events:
+ *   room-event   { type, payload }   — broadcast to everyone in the room
+ *   team-event   { type, payload }   — sent directly to the sender socket
  */
 
 const gameManager = require('../services/gameManager');
@@ -19,153 +16,192 @@ const codeEvaluator = require('../services/codeEvaluator');
 const { participantRepo } = require('../db/database');
 
 /**
- * Initialize the STOMP game handler.
- * @param {object} stompServer — instance of stomp-broker-js
+ * Initialize Socket.IO game handler.
+ * @param {import('socket.io').Server} io — Socket.IO server instance
  */
-function init(stompServer) {
+function init(io) {
 
-  stompServer.on('subscribe', () => {
-    // Client subscribed — no action needed, mirrors Spring behavior
-  });
+  io.on('connection', (socket) => {
+    console.log(`[WS] Client connected: ${socket.id}`);
 
-  stompServer.on('send', (rawMsg) => {
-    try {
-      const dest = rawMsg.dest || rawMsg.topic;
-      const body = typeof rawMsg.body === 'string' ? JSON.parse(rawMsg.body) : rawMsg.body;
+    // ─── join-room ────────────────────────────────────────────────────────
+    socket.on('join-room', (msg) => {
+      try {
+        const { roomId, teamId, role } = msg;
 
-      if (dest === '/app/join') {
-        handleJoin(stompServer, body);
-      } else if (dest === '/app/start') {
-        handleStart(stompServer, body);
-      } else if (dest === '/app/submit') {
-        handleSubmit(stompServer, body);
+        // ALWAYS join the Socket.IO room so broadcasts reach this client
+        socket.join(roomId);
+
+        // Organizers just observe — no participant logic needed
+        if (role === 'organizer') {
+          console.log(`[WS] Organizer joined room ${roomId}`);
+          // Send current participant list immediately so the organizer is up to date
+          const participants = gameManager.getParticipants(roomId);
+          socket.emit('room-event', {
+            type: 'PARTICIPANT_LIST',
+            payload: { participants, count: participants.length },
+          });
+          return;
+        }
+
+        // ── Participant join logic ──
+        if (!gameManager.roomExists(roomId)) {
+          socket.emit('team-event', { type: 'ERROR', payload: { message: 'Room not found' } });
+          return;
+        }
+
+        if (gameManager.getRoomState(roomId) !== 'WAITING') {
+          socket.emit('team-event', { type: 'ERROR', payload: { message: 'Game in progress' } });
+          return;
+        }
+
+        if (!participantRepo.existsByTeamIdAndRoomId(teamId, roomId)) {
+          if (!gameManager.addParticipant(roomId, teamId)) {
+            socket.emit('team-event', { type: 'ERROR', payload: { message: 'Team name taken' } });
+            return;
+          }
+          participantRepo.save(teamId, roomId);
+        }
+
+        // Store teamId on the socket for later use
+        socket.data.teamId = teamId;
+        socket.data.roomId = roomId;
+
+        // Confirm join to the participant
+        socket.emit('team-event', { type: 'JOIN_OK', payload: { teamId, roomId } });
+
+        // Broadcast updated participant list to EVERYONE in the room (including organizer)
+        const participants = gameManager.getParticipants(roomId);
+        io.to(roomId).emit('room-event', {
+          type: 'PARTICIPANT_LIST',
+          payload: { participants, count: participants.length },
+        });
+
+        console.log(`[WS] Team "${teamId}" joined room ${roomId} (${participants.length} total)`);
+
+      } catch (err) {
+        console.error('[WS] join-room error:', err.message);
       }
-    } catch (err) {
-      console.error('STOMP message handling error:', err.message);
-    }
-  });
-}
-
-// ─── /app/join — mirrors GameController.joinRoom() ───────────────────────────
-
-function handleJoin(stompServer, msg) {
-  const { roomId, teamId } = msg;
-
-  if (!gameManager.roomExists(roomId)) {
-    sendToTeam(stompServer, roomId, teamId, 'ERROR', { message: 'Room not found' });
-    return;
-  }
-
-  if (gameManager.getRoomState(roomId) !== 'WAITING') {
-    sendToTeam(stompServer, roomId, teamId, 'ERROR', { message: 'Game in progress' });
-    return;
-  }
-
-  if (!participantRepo.existsByTeamIdAndRoomId(teamId, roomId)) {
-    if (!gameManager.addParticipant(roomId, teamId)) {
-      sendToTeam(stompServer, roomId, teamId, 'ERROR', { message: 'Team name taken' });
-      return;
-    }
-    participantRepo.save(teamId, roomId);
-  }
-
-  sendToTeam(stompServer, roomId, teamId, 'JOIN_OK', { teamId, roomId });
-
-  const participants = gameManager.getParticipants(roomId);
-  broadcastToRoom(stompServer, roomId, 'PARTICIPANT_LIST', {
-    participants,
-    count: participants.length,
-  });
-}
-
-// ─── /app/start — mirrors GameController.startGame() ─────────────────────────
-
-function handleStart(stompServer, payload) {
-  const { roomId } = payload;
-
-  if (!gameManager.roomExists(roomId)) return;
-  if (!gameManager.startGame(roomId)) return;
-
-  broadcastToRoom(stompServer, roomId, 'GAME_START', { message: 'Compete. Solve. Win.' });
-
-  const stage1 = codeEvaluator.STAGES[0];
-  broadcastToRoom(stompServer, roomId, 'QUESTION_DATA', {
-    stage: 1,
-    riddle: stage1.riddleText,
-    template: '// write your code here',
-    totalStages: codeEvaluator.STAGES.length,
-  });
-}
-
-// ─── /app/submit — mirrors GameController.submitCode() ───────────────────────
-
-function handleSubmit(stompServer, msg) {
-  const { roomId, teamId, code, stage, language } = msg;
-
-  if (!gameManager.roomExists(roomId)) return;
-  if (gameManager.getRoomState(roomId) !== 'STARTED') return;
-
-  // Try evaluation (mirrors Java: try compile, fallback to heuristic)
-  let passed = false;
-  try {
-    passed = codeEvaluator.evaluate(stage, code);
-    if (!passed) {
-      passed = codeEvaluator.heuristicEvaluate(stage, code);
-    }
-  } catch (e) {
-    passed = codeEvaluator.heuristicEvaluate(stage, code);
-  }
-
-  if (passed) {
-    const digit = codeEvaluator.STAGES[stage - 1].digit;
-    gameManager.recordDigit(roomId, teamId, stage, digit);
-
-    sendToTeam(stompServer, roomId, teamId, 'RESULT', {
-      teamId,
-      stage,
-      passed: true,
-      digit,
     });
 
-    broadcastToRoom(stompServer, roomId, 'TEAM_PROGRESS', { teamId, stage });
+    // ─── start-game ───────────────────────────────────────────────────────
+    socket.on('start-game', (msg) => {
+      try {
+        const { roomId } = msg;
 
-    const nextStageIdx = stage;
-    if (nextStageIdx < codeEvaluator.STAGES.length) {
-      const next = codeEvaluator.STAGES[nextStageIdx];
-      sendToTeam(stompServer, roomId, teamId, 'QUESTION_DATA', {
-        stage: nextStageIdx + 1,
-        riddle: next.riddleText,
-        template: '// write your code here',
-        totalStages: codeEvaluator.STAGES.length,
-      });
-    } else {
-      const digits = gameManager.getDigits(roomId, teamId);
-      sendToTeam(stompServer, roomId, teamId, 'GAME_END', {
-        teamId,
-        values: { X: digits[0], Y: digits[1] },
-      });
-      broadcastToRoom(stompServer, roomId, 'TEAM_FINISHED', { teamId });
-    }
-  } else {
-    sendToTeam(stompServer, roomId, teamId, 'RESULT', {
-      teamId,
-      stage,
-      passed: false,
-      message: 'Logic mismatch. Examine the riddle closely.',
+        if (!gameManager.roomExists(roomId)) return;
+        if (!gameManager.startGame(roomId)) return;
+
+        // Broadcast GAME_START to the entire room
+        io.to(roomId).emit('room-event', {
+          type: 'GAME_START',
+          payload: { message: 'Compete. Solve. Win.' },
+        });
+
+        // Broadcast first question to the entire room
+        const stage1 = codeEvaluator.STAGES[0];
+        io.to(roomId).emit('room-event', {
+          type: 'QUESTION_DATA',
+          payload: {
+            stage: 1,
+            riddle: stage1.riddleText,
+            template: '// write your code here',
+            totalStages: codeEvaluator.STAGES.length,
+          },
+        });
+
+        console.log(`[WS] Game started in room ${roomId}`);
+
+      } catch (err) {
+        console.error('[WS] start-game error:', err.message);
+      }
     });
-  }
-}
 
-// ─── Helpers — mirror GameController private methods ─────────────────────────
+    // ─── submit-code ──────────────────────────────────────────────────────
+    socket.on('submit-code', (msg) => {
+      try {
+        const { roomId, teamId, code, stage, language } = msg;
 
-function broadcastToRoom(stompServer, roomId, type, payload) {
-  const dest = `/topic/room/${roomId}`;
-  stompServer.send(dest, {}, JSON.stringify({ type, payload }));
-}
+        if (!gameManager.roomExists(roomId)) return;
+        if (gameManager.getRoomState(roomId) !== 'STARTED') return;
 
-function sendToTeam(stompServer, roomId, teamId, type, payload) {
-  const dest = `/topic/room/${roomId}/team/${teamId}`;
-  stompServer.send(dest, {}, JSON.stringify({ type, payload }));
+        // Evaluate the submitted code
+        let passed = false;
+        try {
+          passed = codeEvaluator.evaluate(stage, code);
+          if (!passed) {
+            passed = codeEvaluator.heuristicEvaluate(stage, code);
+          }
+        } catch (e) {
+          passed = codeEvaluator.heuristicEvaluate(stage, code);
+        }
+
+        if (passed) {
+          const digit = codeEvaluator.STAGES[stage - 1].digit;
+          gameManager.recordDigit(roomId, teamId, stage, digit);
+
+          // Send result to the submitting team
+          socket.emit('team-event', {
+            type: 'RESULT',
+            payload: { teamId, stage, passed: true, digit },
+          });
+
+          // Broadcast progress to the room (organizer sees this)
+          io.to(roomId).emit('room-event', {
+            type: 'TEAM_PROGRESS',
+            payload: { teamId, stage },
+          });
+
+          // Check if there's a next stage
+          const nextStageIdx = stage;
+          if (nextStageIdx < codeEvaluator.STAGES.length) {
+            const next = codeEvaluator.STAGES[nextStageIdx];
+            socket.emit('team-event', {
+              type: 'QUESTION_DATA',
+              payload: {
+                stage: nextStageIdx + 1,
+                riddle: next.riddleText,
+                template: '// write your code here',
+                totalStages: codeEvaluator.STAGES.length,
+              },
+            });
+          } else {
+            // All stages done
+            const digits = gameManager.getDigits(roomId, teamId);
+            socket.emit('team-event', {
+              type: 'GAME_END',
+              payload: { teamId, values: { X: digits[0], Y: digits[1] } },
+            });
+            io.to(roomId).emit('room-event', {
+              type: 'TEAM_FINISHED',
+              payload: { teamId },
+            });
+          }
+
+          console.log(`[WS] Team "${teamId}" passed stage ${stage} in room ${roomId}`);
+
+        } else {
+          socket.emit('team-event', {
+            type: 'RESULT',
+            payload: {
+              teamId,
+              stage,
+              passed: false,
+              message: 'Logic mismatch. Examine the riddle closely.',
+            },
+          });
+        }
+
+      } catch (err) {
+        console.error('[WS] submit-code error:', err.message);
+      }
+    });
+
+    // ─── disconnect ───────────────────────────────────────────────────────
+    socket.on('disconnect', (reason) => {
+      console.log(`[WS] Client disconnected: ${socket.id} (${reason})`);
+    });
+  });
 }
 
 module.exports = { init };

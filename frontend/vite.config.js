@@ -10,8 +10,8 @@ export default defineConfig({
         target: 'http://localhost:8080',
         changeOrigin: true,
       },
-      '/ws-game': {
-        target: 'ws://localhost:8080',
+      '/socket.io': {
+        target: 'http://localhost:8080',
         changeOrigin: true,
         ws: true,
       },

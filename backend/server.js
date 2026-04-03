@@ -1,18 +1,15 @@
 /**
- * Server Entry Point — equivalent to BackendApplication.java + WebSocketConfig.java
+ * Server Entry Point
  * 
  * Sets up:
  *   1. Express HTTP server with JSON parsing and CORS
  *   2. REST API routes at /api/*
- *   3. STOMP over SockJS WebSocket at /ws-game (same as Spring config)
- *   4. Simple STOMP broker with /topic prefix (same as Spring config)
- *   5. Application destination prefix /app (same as Spring config)
+ *   3. Socket.IO for real-time WebSocket communication
  */
 
 const http = require('http');
 const express = require('express');
-const StompServer = require('stomp-broker-js');
-const sockjs = require('sockjs');
+const { Server: SocketIOServer } = require('socket.io');
 
 const corsMiddleware = require('./config/cors');
 const apiRoutes = require('./routes/api');
@@ -40,28 +37,30 @@ app.get('/', (req, res) => {
 
 const server = http.createServer(app);
 
-// ─── STOMP over SockJS (mirrors WebSocketConfig.java) ───────────────────────
-// Spring config:
-//   enableSimpleBroker("/topic")
-//   setApplicationDestinationPrefixes("/app")
-//   addEndpoint("/ws-game").setAllowedOriginPatterns("*").withSockJS()
+// ─── Socket.IO Server ──────────────────────────────────────────────────────
 
-const stompServer = new StompServer({
-  server: server,
-  path: '/ws-game',
-  heartBeatDelay: 10000,
-  debug: (msg) => {
-    // Suppress noisy STOMP debug logs (mirrors Spring logging config)
+const io = new SocketIOServer(server, {
+  cors: {
+    origin: [
+      'http://localhost:5173',
+      'http://localhost:3000',
+      'https://sig-x-redbull.vercel.app',
+    ],
+    methods: ['GET', 'POST'],
+    credentials: true,
   },
+  // Ping timeout and interval for connection health
+  pingTimeout: 60000,
+  pingInterval: 25000,
 });
 
 // Initialize game WebSocket handlers
-gameHandler.init(stompServer);
+gameHandler.init(io);
 
 // ─── Start ──────────────────────────────────────────────────────────────────
 
 server.listen(PORT, () => {
   console.log(`⚡ SIG Backend running on port ${PORT}`);
-  console.log(`   REST API:   http://localhost:${PORT}/api`);
-  console.log(`   WebSocket:  ws://localhost:${PORT}/ws-game`);
+  console.log(`   REST API:      http://localhost:${PORT}/api`);
+  console.log(`   Socket.IO:     http://localhost:${PORT} (auto-managed)`);
 });

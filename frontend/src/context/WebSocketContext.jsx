@@ -1,107 +1,107 @@
-import React, { createContext, useContext, useRef, useState, useCallback } from 'react';
-import { Client } from '@stomp/stompjs';
-import { WS_URL } from '../config';
+import React, { createContext, useContext, useRef, useState, useCallback, useEffect } from 'react';
+import { io } from 'socket.io-client';
+import { SOCKET_URL } from '../config';
 
 const WebSocketContext = createContext(null);
 
 export function WebSocketProvider({ children }) {
-  const clientRef = useRef(null);
+  const socketRef = useRef(null);
   const [connected, setConnected] = useState(false);
-  const pendingSubscriptions = useRef([]);
-  const activeSubscriptions = useRef([]);
 
   /**
-   * Connect to the STOMP WebSocket.
-   * Uses native WebSocket (stomp-broker-js on the Node.js backend).
-   * If already connected, immediately invokes onConnect.
-   * If connecting, queues onConnect to run when connection is established.
+   * Connect to the Socket.IO server.
+   * If already connected, does nothing.
+   * Returns the socket instance.
    */
-  const connect = useCallback((onConnect) => {
-    const client = clientRef.current;
-
-    // Already connected — run callback immediately
-    if (client?.connected) {
-      onConnect?.();
-      return;
+  const connect = useCallback(() => {
+    if (socketRef.current?.connected) {
+      return socketRef.current;
     }
 
-    // Already activated (connecting) — queue the callback
-    if (client?.active) {
-      pendingSubscriptions.current.push(onConnect);
-      return;
+    // Disconnect any stale socket
+    if (socketRef.current) {
+      socketRef.current.disconnect();
     }
 
-    // Queue the callback for when we connect
-    if (onConnect) pendingSubscriptions.current.push(onConnect);
-
-    const newClient = new Client({
-      brokerURL: WS_URL,
-      reconnectDelay: 5000,
-      onConnect: () => {
-        setConnected(true);
-        // Drain pending callbacks
-        const pending = [...pendingSubscriptions.current];
-        pendingSubscriptions.current = [];
-        pending.forEach(cb => cb?.());
-      },
-      onDisconnect: () => {
-        setConnected(false);
-        // Clear active sub references (they are auto-unsubscribed)
-        activeSubscriptions.current = [];
-      },
-      onStompError: (frame) => {
-        console.error('STOMP error', frame);
-      },
+    const socket = io(SOCKET_URL, {
+      transports: ['websocket', 'polling'], // prefer WebSocket, fallback to polling
+      reconnection: true,
+      reconnectionDelay: 1000,
+      reconnectionAttempts: Infinity,
+      timeout: 20000,
     });
 
-    newClient.activate();
-    clientRef.current = newClient;
+    socket.on('connect', () => {
+      console.log('[Socket.IO] Connected:', socket.id);
+      setConnected(true);
+    });
+
+    socket.on('disconnect', (reason) => {
+      console.log('[Socket.IO] Disconnected:', reason);
+      setConnected(false);
+    });
+
+    socket.on('connect_error', (err) => {
+      console.error('[Socket.IO] Connection error:', err.message);
+      setConnected(false);
+    });
+
+    socketRef.current = socket;
+    return socket;
+  }, []);
+
+  /**
+   * Join a game room. Both participants and organizers call this.
+   */
+  const joinRoom = useCallback((roomId, teamId, role) => {
+    const socket = socketRef.current;
+    if (!socket?.connected) {
+      console.warn('[Socket.IO] Not connected — cannot join room');
+      return;
+    }
+    socket.emit('join-room', { roomId, teamId, role });
+  }, []);
+
+  /**
+   * Emit a custom event to the server.
+   */
+  const emit = useCallback((event, data) => {
+    const socket = socketRef.current;
+    if (!socket?.connected) {
+      console.warn('[Socket.IO] Not connected — cannot emit', event);
+      return;
+    }
+    socket.emit(event, data);
+  }, []);
+
+  /**
+   * Listen for an event. Returns an unsubscribe function.
+   */
+  const on = useCallback((event, callback) => {
+    const socket = socketRef.current;
+    if (!socket) {
+      console.warn('[Socket.IO] No socket — cannot listen for', event);
+      return () => {};
+    }
+    socket.on(event, callback);
+    return () => socket.off(event, callback);
   }, []);
 
   const disconnect = useCallback(() => {
-    clientRef.current?.deactivate();
-    clientRef.current = null;
+    socketRef.current?.disconnect();
+    socketRef.current = null;
     setConnected(false);
-    activeSubscriptions.current = [];
-    pendingSubscriptions.current = [];
   }, []);
 
-  /**
-   * Subscribe to a destination.
-   * Returns the subscription object with an unsubscribe() method.
-   */
-  const subscribe = useCallback((destination, callback) => {
-    const client = clientRef.current;
-    if (!client?.connected) {
-      console.warn('WebSocket not connected — cannot subscribe to', destination);
-      return null;
-    }
-    const sub = client.subscribe(destination, (msg) => {
-      try {
-        const data = JSON.parse(msg.body);
-        callback(data);
-      } catch {
-        callback(msg.body);
-      }
-    });
-    activeSubscriptions.current.push(sub);
-    return sub;
-  }, []);
-
-  const publish = useCallback((destination, body) => {
-    const client = clientRef.current;
-    if (!client?.connected) {
-      console.warn('WebSocket not connected — cannot publish to', destination);
-      return;
-    }
-    client.publish({
-      destination,
-      body: JSON.stringify(body),
-    });
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      socketRef.current?.disconnect();
+    };
   }, []);
 
   return (
-    <WebSocketContext.Provider value={{ connected, connect, disconnect, subscribe, publish }}>
+    <WebSocketContext.Provider value={{ connected, connect, disconnect, joinRoom, emit, on }}>
       {children}
     </WebSocketContext.Provider>
   );

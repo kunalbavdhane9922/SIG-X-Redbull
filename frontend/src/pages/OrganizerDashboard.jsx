@@ -8,9 +8,8 @@ const GAME_DURATION = 5 * 60; // 5 minutes
 
 export default function OrganizerDashboard() {
   const navigate = useNavigate();
-  const { connect, subscribe, publish, connected } = useWebSocket();
+  const { connect, joinRoom, on, emit, connected } = useWebSocket();
   const { organizer, roomId, setRoomId } = useGame();
-  const subRef = useRef(null);
 
   const [participants, setParticipants] = useState([]);
   const [gameStarted, setGameStarted] = useState(false);
@@ -20,17 +19,22 @@ export default function OrganizerDashboard() {
   const [finishedTeams, setFinishedTeams] = useState([]);
   const [teamProgress, setTeamProgress]  = useState({}); // teamId -> stage completed
   const timerRef = useRef(null);
+  const cleanupRef = useRef([]);
 
   // Redirect if not organizer
   useEffect(() => {
     if (!organizer) navigate('/');
   }, [organizer]);
 
-  // Connect to WS after room is created
+  // Connect to Socket.IO and join room after room is created
   useEffect(() => {
     if (!roomId) return;
-    connect(() => {
-      subRef.current = subscribe(`/topic/room/${roomId}`, (event) => {
+
+    const socket = connect();
+
+    const setupListeners = () => {
+      // Listen for room-wide events
+      const unsub = on('room-event', (event) => {
         if (event.type === 'PARTICIPANT_LIST') {
           setParticipants(event.payload.participants || []);
         }
@@ -44,8 +48,23 @@ export default function OrganizerDashboard() {
           );
         }
       });
-    });
-    return () => subRef.current?.unsubscribe();
+
+      cleanupRef.current = [unsub];
+
+      // Join the room as organizer (observer)
+      joinRoom(roomId, null, 'organizer');
+    };
+
+    if (socket.connected) {
+      setupListeners();
+    } else {
+      socket.once('connect', setupListeners);
+    }
+
+    return () => {
+      cleanupRef.current.forEach(fn => fn?.());
+      socket.off('connect', setupListeners);
+    };
   }, [roomId]);
 
   // Countdown timer
@@ -89,7 +108,7 @@ export default function OrganizerDashboard() {
 
   const handleStartGame = () => {
     if (!roomId || !connected) return;
-    publish('/app/start', { roomId });
+    emit('start-game', { roomId });
     setGameStarted(true);
   };
 
@@ -121,7 +140,7 @@ export default function OrganizerDashboard() {
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
           <span className={`badge ${connected ? 'badge-green' : 'badge-red'}`}>
-            {connected ? '● WS Connected' : '○ Disconnected'}
+            {connected ? '● Connected' : '○ Disconnected'}
           </span>
           {gameStarted && (
             <div className={`timer ${timeLeft < 60 ? 'danger' : ''}`}>

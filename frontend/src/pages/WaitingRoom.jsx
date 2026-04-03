@@ -5,19 +5,33 @@ import { useGame } from '../context/GameContext';
 
 export default function WaitingRoom() {
   const navigate = useNavigate();
-  const { connect, subscribe, publish, connected } = useWebSocket();
+  const { connect, joinRoom, on, connected } = useWebSocket();
   const { teamId, roomId, setGameState, setQuestion, setCurrentStage } = useGame();
-  const roomSubRef = useRef(null);
-  const teamSubRef = useRef(null);
   const [joinError, setJoinError] = useState('');
   const [joined, setJoined] = useState(false);
+  const cleanupRef = useRef([]);
 
   useEffect(() => {
     if (!teamId || !roomId) { navigate('/'); return; }
 
-    connect(() => {
-      // Subscribe to ROOM-wide broadcasts (GAME_START / QUESTION_DATA from organizer)
-      roomSubRef.current = subscribe(`/topic/room/${roomId}`, (event) => {
+    // Connect to Socket.IO
+    const socket = connect();
+
+    // Wait for connection, then set up listeners and join
+    const onConnect = () => {
+      // Listen for team-specific events (JOIN_OK, ERROR)
+      const unsub1 = on('team-event', (event) => {
+        if (event.type === 'JOIN_OK') {
+          setJoined(true);
+          setJoinError('');
+        }
+        if (event.type === 'ERROR') {
+          setJoinError(event.payload?.message || 'Unknown error');
+        }
+      });
+
+      // Listen for room-wide events (GAME_START, QUESTION_DATA)
+      const unsub2 = on('room-event', (event) => {
         if (event.type === 'GAME_START') {
           setGameState('PLAYING');
         }
@@ -28,24 +42,22 @@ export default function WaitingRoom() {
         }
       });
 
-      // Subscribe to TEAM-PRIVATE topic (JOIN_OK / ERROR)
-      teamSubRef.current = subscribe(`/topic/room/${roomId}/team/${teamId}`, (event) => {
-        if (event.type === 'JOIN_OK') {
-          setJoined(true);
-          setJoinError('');
-        }
-        if (event.type === 'ERROR') {
-          setJoinError(event.payload?.message || 'Unknown error');
-        }
-      });
+      cleanupRef.current = [unsub1, unsub2];
 
-      // Send JOIN after subscriptions are active
-      publish('/app/join', { teamId, roomId });
-    });
+      // Send join request
+      joinRoom(roomId, teamId, 'participant');
+    };
+
+    // If already connected, join immediately
+    if (socket.connected) {
+      onConnect();
+    } else {
+      socket.once('connect', onConnect);
+    }
 
     return () => {
-      roomSubRef.current?.unsubscribe();
-      teamSubRef.current?.unsubscribe();
+      cleanupRef.current.forEach(fn => fn?.());
+      socket.off('connect', onConnect);
     };
   }, [teamId, roomId]);
 
@@ -115,19 +127,15 @@ export default function WaitingRoom() {
                 padding: '8px'
               }}>
                 <svg viewBox="0 0 21 21" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
-                  {/* QR pattern - top-left finder */}
                   <rect x="0" y="0" width="7" height="7" fill="none" stroke="#000" strokeWidth="1"/>
                   <rect x="1" y="1" width="5" height="5" fill="#000"/>
                   <rect x="2" y="2" width="3" height="3" fill="white"/>
-                  {/* top-right finder */}
                   <rect x="14" y="0" width="7" height="7" fill="none" stroke="#000" strokeWidth="1"/>
                   <rect x="15" y="1" width="5" height="5" fill="#000"/>
                   <rect x="16" y="2" width="3" height="3" fill="white"/>
-                  {/* bottom-left finder */}
                   <rect x="0" y="14" width="7" height="7" fill="none" stroke="#000" strokeWidth="1"/>
                   <rect x="1" y="15" width="5" height="5" fill="#000"/>
                   <rect x="2" y="16" width="3" height="3" fill="white"/>
-                  {/* data modules */}
                   <rect x="8" y="0" width="1" height="1" fill="#000"/>
                   <rect x="10" y="0" width="1" height="1" fill="#000"/>
                   <rect x="12" y="0" width="1" height="1" fill="#000"/>
