@@ -5,11 +5,13 @@ COPY gradle/ gradle/
 COPY gradlew build.gradle settings.gradle ./
 COPY src/ src/
 RUN chmod +x gradlew
-RUN ./gradlew bootJar -x test
+# Optimized for Render Free 512MB RAM
+RUN ./gradlew bootJar -x test --no-daemon --max-workers=1 -Dorg.gradle.jvmargs="-Xmx384m"
 
 # Run stage
 FROM eclipse-temurin:21-jre-jammy
 WORKDIR /app
 COPY --from=build /app/build/libs/*.jar app.jar
 EXPOSE 8080
-ENTRYPOINT ["java", "-jar", "app.jar"]
+# Limit runtime memory too
+ENTRYPOINT ["java", "-Xmx384m", "-jar", "app.jar"]
