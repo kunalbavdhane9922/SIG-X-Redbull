@@ -1,9 +1,11 @@
 services:
-  # Backend Web Service
+  # Backend Web Service (Node.js)
   - type: web
     name: sig-backend
-    runtime: docker
+    runtime: node
     rootDir: backend
+    buildCommand: npm install
+    startCommand: node server.js
     envVars:
       - key: PORT
         value: 8080
