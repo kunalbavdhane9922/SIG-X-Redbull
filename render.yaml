@@ -15,3 +15,9 @@ services:
     rootDir: frontend
     buildCommand: npm install && npm run build
     publishPath: dist
+    envVars:
+      - key: VITE_BACKEND_URL
+        fromService:
+          type: web
+          name: sig-backend
+          property: host

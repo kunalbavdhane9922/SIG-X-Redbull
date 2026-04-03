@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useGame } from '../context/GameContext';
 
-const API = '/api';
+import { API_URL as API } from '../config';
 
 function BrandMark({ size = 'md', center = false }) {
   const sizes = {

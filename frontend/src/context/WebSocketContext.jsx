@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useRef, useState, useCallback } from 'react';
 import { Client } from '@stomp/stompjs';
 import SockJS from 'sockjs-client';
+import { WS_URL } from '../config';
 
 const WebSocketContext = createContext(null);
 
@@ -34,7 +35,7 @@ export function WebSocketProvider({ children }) {
     if (onConnect) pendingSubscriptions.current.push(onConnect);
 
     const newClient = new Client({
-      webSocketFactory: () => new SockJS('/ws-game'),
+      webSocketFactory: () => new SockJS(WS_URL),
       reconnectDelay: 5000,
       onConnect: () => {
         setConnected(true);

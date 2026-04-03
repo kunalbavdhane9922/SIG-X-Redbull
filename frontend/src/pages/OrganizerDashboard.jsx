@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useWebSocket } from '../context/WebSocketContext';
 import { useGame } from '../context/GameContext';
 
-const API = '/api';
+import { API_URL as API } from '../config';
 const GAME_DURATION = 5 * 60; // 5 minutes
 
 export default function OrganizerDashboard() {
