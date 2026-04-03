@@ -1,0 +1,17 @@
+services:
+  # Backend Web Service
+  - type: web
+    name: sig-backend
+    runtime: docker
+    rootDir: backend
+    envVars:
+      - key: PORT
+        value: 8080
+
+  # Frontend Static Site
+  - type: static
+    name: sig-frontend
+    runtime: node
+    rootDir: frontend
+    buildCommand: npm install && npm run build
+    publishPath: dist
