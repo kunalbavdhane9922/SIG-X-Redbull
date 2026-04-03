@@ -4,7 +4,7 @@
  * In production (Render), uses the VITE_BACKEND_URL environment variable.
  */
 
-const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8080';
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'https://sig-x-redbull.onrender.com';
 
 // Remove trailing slash if present
 const cleanURL = BACKEND_URL.replace(/\/$/, '');
