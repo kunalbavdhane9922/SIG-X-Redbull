@@ -1,6 +1,5 @@
 import React, { createContext, useContext, useRef, useState, useCallback } from 'react';
 import { Client } from '@stomp/stompjs';
-import SockJS from 'sockjs-client';
 import { WS_URL } from '../config';
 
 const WebSocketContext = createContext(null);
@@ -13,6 +12,7 @@ export function WebSocketProvider({ children }) {
 
   /**
    * Connect to the STOMP WebSocket.
+   * Uses native WebSocket (stomp-broker-js on the Node.js backend).
    * If already connected, immediately invokes onConnect.
    * If connecting, queues onConnect to run when connection is established.
    */
@@ -35,7 +35,7 @@ export function WebSocketProvider({ children }) {
     if (onConnect) pendingSubscriptions.current.push(onConnect);
 
     const newClient = new Client({
-      webSocketFactory: () => new SockJS(WS_URL),
+      brokerURL: WS_URL,
       reconnectDelay: 5000,
       onConnect: () => {
         setConnected(true);

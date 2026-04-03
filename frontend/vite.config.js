@@ -11,7 +11,7 @@ export default defineConfig({
         changeOrigin: true,
       },
       '/ws-game': {
-        target: 'http://localhost:8080',
+        target: 'ws://localhost:8080',
         changeOrigin: true,
         ws: true,
       },

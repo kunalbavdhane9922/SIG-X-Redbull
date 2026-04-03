@@ -10,11 +10,14 @@ const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8080';
 const cleanURL = BACKEND_URL.replace(/\/$/, '');
 
 // If it starts with http, it's an absolute URL. Otherwise, assume it's a relative path.
-// On Render, we'll provide the full https://... URL.
 const API_BASE = cleanURL.startsWith('http') ? cleanURL : '';
 
 export const API_URL = `${API_BASE}/api`;
-export const WS_URL = `${API_BASE}/ws-game`;
+
+// WebSocket URL: convert http(s) to ws(s)
+// stomp-broker-js uses native WebSocket (not SockJS)
+const wsBase = API_BASE.replace(/^http/, 'ws');
+export const WS_URL = `${wsBase}/ws-game`;
 
 export default {
     API_URL,
