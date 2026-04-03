@@ -1,0 +1,25 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+frontend/dist/
+backend/build/
+backend/.gradle/
+backend/build_log.txt
+backend/build_output.txt
+
+# IDE
+.idea/
+.vscode/
+*.iml
+*.iws
+*.ipr
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Logs
+*.log
