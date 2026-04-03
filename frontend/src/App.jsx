@@ -9,7 +9,12 @@ import CompletionPage from './pages/CompletionPage';
 
 function GuardedRoute({ element, requiredRole }) {
   const { role } = useGame();
-  if (requiredRole && role !== requiredRole) return <Navigate to="/" replace />;
+  
+  // If role is null but we're trying to access a guarded route, redirect to login
+  if (requiredRole && role !== requiredRole) {
+    return <Navigate to="/" replace />;
+  }
+  
   return element;
 }
 
