@@ -6,9 +6,9 @@ const cors = require('cors');
 
 const corsMiddleware = cors({
   origin: [
-    'http://localhost:5173',
-    'http://localhost:3000',
-    'https://sig-x-redbull.vercel.app',
+    'https://gracia-organographical-jeanmarie.ngrok-free.dev',
+    /\.ngrok-free\.dev$/, // Allow all subdomains of ngrok-free.dev for flexibility
+    'http://localhost:5173', // Keep local for internal testing if needed
   ],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],

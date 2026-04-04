@@ -1,16 +1,11 @@
 /**
  * Central configuration for API and Socket.IO endpoints.
  * 
- * In development (Vite dev server), defaults to localhost:8080.
- * In production, uses the VITE_BACKEND_URL environment variable.
+ * Using ngrok for the backend:
+ * https://gracia-organographical-jeanmarie.ngrok-free.dev
  */
 
-// Detect if running on localhost dev server
-const isDev = typeof window !== 'undefined' && 
-  (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
-
-const BACKEND_URL = import.meta.env.VITE_BACKEND_URL 
-  || (isDev ? 'https://gracia-organographical-jeanmarie.ngrok-free.dev' : 'https://sig-x-redbull.onrender.com');
+const BACKEND_URL = 'https://gracia-organographical-jeanmarie.ngrok-free.dev';
 
 // Remove trailing slash if present
 const cleanURL = BACKEND_URL.replace(/\/$/, '');

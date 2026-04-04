@@ -42,9 +42,9 @@ const server = http.createServer(app);
 const io = new SocketIOServer(server, {
   cors: {
     origin: [
+      'https://gracia-organographical-jeanmarie.ngrok-free.dev',
+      /\.ngrok-free\.dev$/,
       'http://localhost:5173',
-      'http://localhost:3000',
-      'https://sig-x-redbull.vercel.app',
     ],
     methods: ['GET', 'POST'],
     credentials: true,
@@ -61,6 +61,7 @@ gameHandler.init(io);
 
 server.listen(PORT, () => {
   console.log(`⚡ SIG Backend running on port ${PORT}`);
-  console.log(`   REST API:      http://localhost:${PORT}/api`);
-  console.log(`   Socket.IO:     http://localhost:${PORT} (auto-managed)`);
+  console.log(`   Public URL:    https://gracia-organographical-jeanmarie.ngrok-free.dev`);
+  console.log(`   REST API:      https://gracia-organographical-jeanmarie.ngrok-free.dev/api`);
+  console.log(`   Socket.IO:     https://gracia-organographical-jeanmarie.ngrok-free.dev (auto-managed)`);
 });
