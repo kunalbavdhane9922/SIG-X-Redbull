@@ -7,11 +7,11 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/api': {
-        target: 'http://localhost:8080',
+        target: 'https://gracia-organographical-jeanmarie.ngrok-free.dev',
         changeOrigin: true,
       },
       '/socket.io': {
-        target: 'http://localhost:8080',
+        target: 'https://gracia-organographical-jeanmarie.ngrok-free.dev',
         changeOrigin: true,
         ws: true,
       },

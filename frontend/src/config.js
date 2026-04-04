@@ -10,7 +10,7 @@ const isDev = typeof window !== 'undefined' &&
   (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL 
-  || (isDev ? 'http://localhost:8080' : 'https://sig-x-redbull.onrender.com');
+  || (isDev ? 'https://gracia-organographical-jeanmarie.ngrok-free.dev' : 'https://sig-x-redbull.onrender.com');
 
 // Remove trailing slash if present
 const cleanURL = BACKEND_URL.replace(/\/$/, '');
